@@ -1,1 +1,6 @@
-# biostat777-project4-JianingYao
+# Broadway Shows Dashboard
+
+## Contributor: Jianing Yao 
+
+## Published dashboard: https://jianingyao.shinyapps.io/broadwayshows/
+
