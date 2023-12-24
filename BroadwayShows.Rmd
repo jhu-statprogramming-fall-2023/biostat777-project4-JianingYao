@@ -1,0 +1,358 @@
+---
+title: "Broadway Shows Data Set Showcase"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    theme: united
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(dplyr)
+library(lubridate)
+library(MCMCpack)
+library(ggplot2)
+library(shiny)
+library(shinyWidgets)
+library(purrr)
+library(scales)
+
+# Create `data` directory if it doesn't exist
+if (!dir.exists("data")) {
+  dir.create("data")
+}
+# Download and save the TidyTuesday datasets
+if (!file.exists("data/grosses.rda")) {
+  grosses <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-04-28/grosses.csv', guess_max = 40000)
+  save(grosses, file = "data/grosses.rda")
+}
+if (!file.exists("data/synopses.rda")) {
+  synopses <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-04-28/synopses.csv')
+  save(synopses, file = "data/synopses.rda")
+}
+# Load the datasets
+load("data/grosses.rda")
+load("data/synopses.rda")
+```
+
+
+# About
+
+<div style="font-size: 18px;">
+Broadway theatre, or Broadway, is a traditional and popular theatre genre that consists of numerous theatrical performances presented in designated professional theaters. Through different shows, the audience can immerse themselves in a diverse range of stories and experiences, from compelling dramas and classic musicals to modern productions and innovative new works. I have watched and enjoyed several shows that served as a getaway from reality when I experienced and reflected on the complexity of human emotions and dramatic stories from the shows. 
+
+This dashboard aims to showcase a data set containing information about Broadway shows that were presented from 2010 to 2020 across theaters. Particularly, I am interested in the popularity of different shows, trend of weekly box office grosses over the decade, and specific factors (e.g., ticket price, attendance, time of the year) that would impact weekly revenues. 
+
+The original Broadway Weekly Grosses data can be obtained from [TidyTuesday](https://github.com/rfordatascience/tidytuesday/blob/master/data/2020/2020-04-28/readme.md). 
+</div>
+
+# Broadway Weekly Grosses {data-navmenu="The Data"}
+
+### Weekly Box Office Revenues Data Set
+
+```{r}
+df <- grosses %>%
+  mutate(year = year(week_ending),
+         month = month(week_ending),
+         is_dec_or_jan = ifelse(month %in% c(12, 1), "True", "False")) %>%
+  dplyr::select(-week_number, -performances, -previews, -seats_sold, -seats_in_theatre, 
+         -potential_gross, -top_ticket_price) %>%
+  filter(year >= 2010, complete.cases(.)) %>%
+  mutate(theatre = as.factor(theatre))
+df_show <- df %>%
+  dplyr::select(-year, -month)
+
+DT::datatable(df_show)
+```
+
+### Data Description and Dictionary {data-height=200}
+
+The data is cleaned by selecting variables of interest and excluding incomplete cases from year 2010 to 2020. A dummy variable `is_dec_or_jan` is created to indicate whether the record is in holiday months (December or January).
+
+- week_ending: Date of the end of the weekly measurement period. Always a Sunday.
+- weekly_gross_overall: Weekly box office gross for all shows and theaters.
+- show: Name of show. Some shows have the same name, but multiple runs.
+- theatre: Name of theatre.
+- weekly_gross: Weekly box office gross for individual show.
+- avg_ticket_price: Average price of tickets sold.
+- pct_capacity: Percent of theatre capacity sold. Shows can exceed 100% capacity by selling standing room tickets.
+- is_dec_or_jan: Whether the show is presented in holiday months (Dec. or Jan.). If `true`, then it is on stage during December or January.
+
+Note: Broadway shows synopses can be found at the tab `Broawdway Shows Synopsis` of `The Data`. 
+
+# Broadway Shows Synopsis {data-navmenu="The Data"}
+
+```{r}
+DT::datatable(synopses)
+```
+
+# Popularity of Shows and Theaters
+
+Column {.tabset}
+-------------------------------------
+
+### Broadway Shows
+
+<div style="font-size: 18px;">
+This plot provides a clear visualization of which Broadway shows have had the longest run times over the past decade, with the duration of each show displayed in days. Top 20's are shown here. 
+</div>
+
+```{r fig.width=12}
+show_duration <- df %>%
+  group_by(show) %>%
+  summarize(Duration = max(week_ending) - min(week_ending)) %>%
+  arrange(desc(Duration)) %>%
+  head(20) 
+
+ggplot(show_duration, aes(x = reorder(show, Duration), y = Duration)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Top 20 Longest-Running Broadway Shows Since 2010", x = "Show", y = "Duration (Days)")
+```
+
+### Broadway Theaters
+
+<div style="font-size: 18px;">
+This plot displays the average capacity utilization percentage of the top 20 Broadway theaters. Each bar represents a theater, arranged in descending order of their average capacity utilization, showcasing which ones consistently operate closest to full capacity over the past decade.
+</div>
+
+```{r fig.width=13}
+theatre_capacity_utilization <- df %>%
+  group_by(theatre) %>%
+  summarize(AvgCapacity = mean(pct_capacity, na.rm = TRUE)) %>%
+  arrange(desc(AvgCapacity)) %>%
+  head(20)
+
+ggplot(theatre_capacity_utilization, aes(x = reorder(theatre, AvgCapacity), y = AvgCapacity * 100)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Top 20 Theaters by Average Capacity Utilization Since 2010", x = "Theater", y = "Average Capacity Utilization (%)")
+```
+
+
+# Weekly Overall Gross Trend
+
+<div style="font-size: 18px;">
+The plot shows the overall weekly gross revenue of Broadway shows and theaters from 2010 to 2020. It features a time series line graph where the x-axis represents the weeks across the years and the y-axis shows the gross revenue in hundreds of thousands of dollars, highlighting the trends and fluctuations in Broadway's overall earnings over the decade. We can observe that there are local peaks of weekly box office revenues during weeks in December and January of each year. 
+</div>
+
+```{r fig.width=13}
+ggplot(df, aes(x = week_ending, y = weekly_gross_overall/100000)) +
+  geom_line() + 
+  labs(title = "Weekly Box Office Gross Over Time (per $100, 000)",
+       subtitle = "Overall Weekly Broadway earnings across shows and theaters from 2010 to 2020",
+       x = "Time (week)",
+       y = "Weekly Overall Gross (per $100, 000)",
+       caption = "Data Source: Broadway Grosses") +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  theme_minimal()
+```
+
+
+# Trend by Theaters
+
+## Column (.sidebar)
+
+```{r}
+tags$div(style = "display: flex; flex-direction: row; justify-content: space-between;",
+  tags$div(style = "width: 48%;", 
+    selectInput(inputId = "theatre",
+                label = "Select a Broadway Theater:",
+                choices = sort(unique(df$theatre)))
+  ),
+  tags$div(style = "width: 48%;",
+    sliderTextInput("year", "Year:",
+                    choices = as.character(2010:2020),
+                    selected = c("2010", "2020"),
+                    grid = TRUE)
+  )
+)
+```
+
+
+```{r}
+filtered_data <- reactive(
+    df %>%
+    filter(theatre == input$theatre,
+           year >= as.numeric(input$year[1]),
+           year <= as.numeric(input$year[2]))
+)
+```
+
+### Weekly Box Office Revenue
+
+```{r}
+renderPlot({
+    ggplot(filtered_data(), aes(x = week_ending, y = weekly_gross/1000)) +
+      geom_line() +
+      labs(title = paste("Weekly Box Office Gross (per $1,000) at", input$theatre, "from", input$year[1], "to", input$year[2]),
+           x = "Time (week)",
+           y = "Weekly Gross (per $1,000)",
+           caption = "Data Source: Broadway Grosses") +
+      scale_x_date(date_breaks = "3 months", date_labels = "%b %Y") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  })
+
+```
+
+
+### Average Ticket Price
+
+```{r}
+renderPlot({
+    ggplot(filtered_data(), aes(x = week_ending, y = avg_ticket_price)) +
+      geom_line() +
+      labs(title = paste("Average Ticket Price ($)", "at", input$theatre, "from", input$year[1], "to", input$year[2]),
+           x = "Time (week)",
+           y = "Average ticket price ($)",
+           caption = "Data Source: Broadway Grosses") +
+      scale_x_date(date_breaks = "3 months", date_labels = "%b %Y") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  })
+```
+
+
+### Percent Capacity (%)
+
+```{r}
+renderPlot({
+    ggplot(filtered_data(), aes(x = week_ending, y = pct_capacity * 100)) +
+      geom_line() +
+      labs(title = paste("Percent Capacity (%)", "at", input$theatre, "from", input$year[1], "to", input$year[2]),
+           x = "Time (week)",
+           y = "Percent Capacity (%)",
+           caption = "Data Source: Broadway Grosses") +
+      scale_x_date(date_breaks = "3 months", date_labels = "%b %Y") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  })
+```
+
+
+# Factors for Revenue
+
+## Column (.sidebar)
+
+```{r}
+tags$div(
+  style = "font-size: 18px; width: 100%;",
+  selectInput(
+    inputId = "predictor",
+    label = "Select a variable of interest to plot against Weekly Gross:",
+    choices = c("Average ticket price",
+                "Percent capacity of theater",
+                "Year",
+                "Whether happen in holiday months (Dec./Jan.)")
+  )
+)
+```
+
+
+## Column
+
+### Plot against Weekly Gross over the Decade
+
+```{r}
+renderPlot({
+  if (input$predictor == "Average ticket price") {
+    ggplot(data = df, aes(x = avg_ticket_price, y = weekly_gross/1000)) +
+      geom_point() +
+      geom_smooth(method = "lm") +
+      labs(title = "Average ticket price ($) against weekly gross (per $1,000) from 2010 to 2020",
+         x = "Average ticket price ($)",
+         y = "Weekly gross (per $1,000)",
+         caption = "Data Source: Broadway Grosses") +
+      theme_minimal()
+  } else if (input$predictor == "Percent capacity of theater") {
+    ggplot(data = df, aes(x = pct_capacity * 100, y = weekly_gross/1000)) +
+      geom_point() +
+      labs(title = "Percent Capacity (%) against weekly gross (per $1,000) from 2010 to 2020",
+         x = "Percent Capacity (%)",
+         y = "Weekly gross (per $1,000)",
+         caption = "Data Source: Broadway Grosses") +
+      theme_minimal()
+  } else if (input$predictor == "Year") {
+    ggplot(data = df, aes(x = as.factor(year), y = weekly_gross/1000)) +
+      geom_point() +
+      labs(title = "Year against weekly gross (per $1,000) from 2010 to 2020",
+         x = "Year",
+         y = "Weekly gross (per $1,000)",
+         caption = "Data Source: Broadway Grosses") +
+      theme_minimal()
+  } else if (input$predictor == "Whether happen in holiday months (Dec./Jan.)") {
+    ggplot(data = df, aes(x = is_dec_or_jan, y = weekly_gross/1000)) +
+      geom_boxplot() +
+      labs(title = "Weekly Gross (per $1,000) by Month Type (Holiday months or not)",
+           x = "Holiday Months",
+           y = "Weekly Gross (per $1,000)",
+           caption = "Data Source: Broadway Grosses") +
+      theme_minimal()
+  }  
+})
+```
+
+
+
+# Analysis
+
+Column
+-----------------------------------------------------------------------
+
+### Bayesian Analysis
+
+<div style="font-size: 18px;">
+I tried out Bayesian linear regression from `MCMCPack` using Markov Chain Monte Carlo sampling algorithm with three predictors: average ticket price, percent of theater capacity, and whether happens in holiday months. I excluded year (due to low association from the previous plot) and theater as predictors in the model for the simplicity of demonstration; otherwise, I will use a hierarchical Bayesian linear regression model. Weak priors are used for beta and sigma^2. All three predictors are significant based on posterior distributions. The plot on the right demonstrates the comparison between actual weekly box office revenues and predictions using estimated coefficients from the Bayesian model.
+</div>
+
+```{r}
+df_new <- grosses %>%
+  mutate(year = year(week_ending),
+         month = month(week_ending),
+         is_dec_or_jan = ifelse(month %in% c(12, 1), 1, 0)) %>%
+  dplyr::select(-week_number, -performances, -previews, -seats_sold, -seats_in_theatre, 
+         -potential_gross, -top_ticket_price, -show) %>%
+  filter(year >= 2010, complete.cases(.)) %>%
+  mutate(theatre = as.factor(theatre))
+
+numeric_predictors <- c("avg_ticket_price", "pct_capacity")
+df_bayes <- df_new %>%
+  modify_at(vars(one_of(numeric_predictors)), ~ as.vector(scale(.)))
+full <- MCMCregress(weekly_gross ~ avg_ticket_price + pct_capacity + is_dec_or_jan, data = df_bayes)
+summary(full)
+```
+
+Column
+-----------------------------------------------------------------------
+
+### Plot
+
+```{r}
+estimates <- map(as.data.frame(full), mean)
+df_bayes$fitted <- estimates$`(Intercept)` + 
+                   estimates$avg_ticket_price * df_bayes$avg_ticket_price +
+                   estimates$pct_capacity * df_bayes$pct_capacity +
+                   estimates$is_dec_or_jan * df_bayes$is_dec_or_jan
+ggplot(data = df_bayes, aes(x = weekly_gross, y = fitted)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Comparison between actual gross revenues and Bayesian model predictions",
+       x = "True value", 
+       y = "Fitted value",
+       caption = "Dashed line represents the identity line where the true values equal the fitted values.") +
+  scale_x_continuous(labels = label_dollar()) +
+  scale_y_continuous(labels = label_dollar()) +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 10))
+```
+
+
+# Video Demo
+<iframe width="560" height="315" src="https://www.youtube.com/embed/k0IjIjwgWSk" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+
+
